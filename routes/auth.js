@@ -32,6 +32,14 @@ function formatPhone(phone) {
   return clean;
 }
 
+function sanitizeSeller(sellerDoc) {
+  if (!sellerDoc) return null;
+  const obj = sellerDoc.toObject ? sellerDoc.toObject() : { ...sellerDoc };
+  delete obj.password;
+  obj.id = String(obj._id || obj.id);
+  return obj;
+}
+
 // ============================================================================
 // 1. POST /api/auth/register - Register a new packaging supplier
 // ============================================================================
@@ -89,14 +97,7 @@ router.post('/register', async (req, res) => {
       success: true,
       message: 'Seller account registered successfully! Welcome to Packbang.',
       token,
-      seller: {
-        id: newSeller._id,
-        phone: newSeller.phone,
-        shopName: newSeller.shopName,
-        email: newSeller.email,
-        tier: newSeller.tier,
-        isVerified: newSeller.isVerified
-      }
+      seller: sanitizeSeller(newSeller)
     });
 
   } catch (err) {
@@ -163,14 +164,7 @@ router.post('/login', async (req, res) => {
       success: true,
       message: 'Login successful! Welcome to Packbang Seller Center.',
       token,
-      seller: {
-        id: seller._id,
-        phone: seller.phone,
-        shopName: seller.shopName,
-        email: seller.email,
-        tier: seller.tier,
-        isVerified: seller.isVerified
-      }
+      seller: sanitizeSeller(seller)
     });
 
   } catch (err) {
@@ -257,13 +251,7 @@ router.post('/verify-otp', async (req, res) => {
       success: true,
       message: 'OTP verified successfully! Welcome to Packbang.',
       token,
-      seller: {
-        id: seller._id,
-        phone: seller.phone,
-        shopName: seller.shopName,
-        email: seller.email,
-        tier: seller.tier
-      }
+      seller: sanitizeSeller(seller)
     });
 
   } catch (err) {
@@ -281,9 +269,88 @@ router.get('/me', verifySellerToken, async (req, res) => {
     if (!seller) {
       return res.status(404).json({ success: false, message: 'Seller not found.' });
     }
-    return res.json({ success: true, seller });
+    return res.json({ success: true, seller: sanitizeSeller(seller) });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to fetch seller profile.' });
+  }
+});
+
+
+// ============================================================================
+// 6. PUT /api/auth/profile - Update Seller Profile & KYC Verification Documents
+// ============================================================================
+router.put('/profile', verifySellerToken, async (req, res) => {
+  try {
+    const {
+      shopName,
+      ownerName,
+      email,
+      warehouseAddress,
+      tradeLicenseNumber,
+      tradeLicenseImage,
+      nidNumber,
+      nidFrontImage,
+      nidBackImage,
+      bankDetails
+    } = req.body;
+
+    const seller = await Seller.findById(req.seller.id);
+    if (!seller) {
+      return res.status(404).json({ success: false, message: 'Seller account not found.' });
+    }
+
+    if (shopName) seller.shopName = shopName.trim();
+    if (ownerName !== undefined) seller.ownerName = ownerName.trim();
+    if (email !== undefined) seller.email = email.trim();
+    if (warehouseAddress) {
+      seller.warehouseAddress = {
+        ...(seller.warehouseAddress || {}),
+        ...warehouseAddress
+      };
+    }
+
+    // Trade License
+    if (tradeLicenseNumber !== undefined) seller.tradeLicenseNumber = String(tradeLicenseNumber).trim();
+    if (tradeLicenseImage !== undefined) seller.tradeLicenseImage = tradeLicenseImage;
+
+    // National ID Information (Front & Back)
+    if (nidNumber !== undefined) seller.nidNumber = String(nidNumber).trim();
+    if (nidFrontImage !== undefined) seller.nidFrontImage = nidFrontImage;
+    if (nidBackImage !== undefined) seller.nidBackImage = nidBackImage;
+
+    // Bank / Payout details
+    if (bankDetails) {
+      seller.bankDetails = {
+        ...(seller.bankDetails || {}),
+        ...bankDetails
+      };
+    }
+
+    // Check verification status
+    const hasTradeLicense = !!(seller.tradeLicenseNumber || seller.tradeLicenseImage);
+    const hasNidFront = !!seller.nidFrontImage;
+    const hasNidBack = !!seller.nidBackImage;
+
+    if (hasTradeLicense && hasNidFront && hasNidBack) {
+      if (seller.kycStatus === 'unverified') {
+        seller.kycStatus = 'pending_verification';
+      }
+      seller.kycSubmittedAt = new Date();
+    }
+
+    await seller.save();
+
+    const safeSeller = seller.toObject();
+    delete safeSeller.password;
+
+    return res.json({
+      success: true,
+      message: 'Factory profile and verification documents saved successfully.',
+      seller: sanitizeSeller(seller)
+    });
+  } catch (err) {
+    console.error('Update seller profile error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to update profile: ' + err.message });
   }
 });
 

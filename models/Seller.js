@@ -37,6 +37,48 @@ const sellerSchema = new mongoose.Schema({
     city: { type: String, default: '' },
     fullAddress: { type: String, default: '' }
   },
+  // Trade License Information (Required after account creation)
+  tradeLicenseNumber: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  tradeLicenseImage: {
+    type: String,
+    default: ''
+  },
+  // National ID (NID) Information (Required after account creation)
+  nidNumber: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  nidFrontImage: {
+    type: String,
+    default: ''
+  },
+  nidBackImage: {
+    type: String,
+    default: ''
+  },
+  // Verification / KYC status
+  kycStatus: {
+    type: String,
+    enum: ['unverified', 'pending_verification', 'verified', 'rejected'],
+    default: 'unverified'
+  },
+  kycSubmittedAt: {
+    type: Date,
+    default: null
+  },
+  // Settlement / Payout Bank & MFS Details
+  bankDetails: {
+    bankName: { type: String, default: '' },
+    accountNumber: { type: String, default: '' },
+    accountHolderName: { type: String, default: '' },
+    branchName: { type: String, default: '' },
+    bkashNumber: { type: String, default: '' }
+  },
   // Tier: 'standard' (ready-stock) or 'pro' (custom printing / factory manufacturer)
   tier: {
     type: String,
