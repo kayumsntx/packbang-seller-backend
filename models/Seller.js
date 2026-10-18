@@ -85,10 +85,39 @@ const sellerSchema = new mongoose.Schema({
     enum: ['standard', 'pro'],
     default: 'standard'
   },
+  // Account Status managed by Admin
   status: {
     type: String,
-    enum: ['active', 'pending', 'suspended'],
-    default: 'active'
+    enum: ['pending_approval', 'approved', 'active', 'pending', 'rejected', 'suspended', 'banned'],
+    default: 'pending_approval'
+  },
+  rejectionReason: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  suspendedUntil: {
+    type: Date,
+    default: null
+  },
+  suspensionReason: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  banReason: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  reviewedBy: {
+    type: String,
+    default: '',
+    trim: true
+  },
+  reviewedAt: {
+    type: Date,
+    default: null
   },
   isVerified: {
     type: Boolean,

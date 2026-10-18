@@ -85,7 +85,8 @@ router.post('/register', async (req, res) => {
       categories: Array.isArray(categories) && categories.length > 0 
         ? categories 
         : ['Courier Poly', 'Corrugated Boxes', 'Bubble Wrap', 'Shopping Bags'],
-      tier: tier === 'pro' ? 'pro' : 'standard'
+      tier: tier === 'pro' ? 'pro' : 'standard',
+      status: 'pending_approval'
     });
 
     await newSeller.save();
@@ -151,9 +152,23 @@ router.post('/login', async (req, res) => {
     }
 
     if (seller.status === 'suspended') {
+      if (seller.suspendedUntil && new Date(seller.suspendedUntil) <= new Date()) {
+        seller.status = 'approved';
+        seller.suspendedUntil = null;
+        seller.suspensionReason = '';
+        await seller.save();
+      } else {
+        return res.status(403).json({
+          success: false,
+          message: `Your seller account is suspended until ${seller.suspendedUntil ? new Date(seller.suspendedUntil).toLocaleDateString() : 'further notice'}. Reason: ${seller.suspensionReason || 'Administrative suspension'}. Contact support@packbang.com for inquiries.`
+        });
+      }
+    }
+
+    if (seller.status === 'banned') {
       return res.status(403).json({
         success: false,
-        message: 'Your seller account has been suspended. Please contact Packbang Support.'
+        message: `Your seller account has been permanently banned. Reason: ${seller.banReason || 'Policy violation'}. Contact support@packbang.com for details.`
       });
     }
 
@@ -332,8 +347,11 @@ router.put('/profile', verifySellerToken, async (req, res) => {
     const hasNidBack = !!seller.nidBackImage;
 
     if (hasTradeLicense && hasNidFront && hasNidBack) {
-      if (seller.kycStatus === 'unverified') {
+      if (seller.kycStatus === 'unverified' || seller.kycStatus === 'rejected') {
         seller.kycStatus = 'pending_verification';
+      }
+      if (seller.status === 'pending_approval' || seller.status === 'rejected' || !seller.status) {
+        seller.status = 'pending_approval';
       }
       seller.kycSubmittedAt = new Date();
     }
