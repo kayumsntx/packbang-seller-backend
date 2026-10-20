@@ -86,7 +86,8 @@ router.post('/register', async (req, res) => {
         ? categories 
         : ['Courier Poly', 'Corrugated Boxes', 'Bubble Wrap', 'Shopping Bags'],
       tier: tier === 'pro' ? 'pro' : 'standard',
-      status: 'pending_approval'
+      status: 'active',
+      kycStatus: 'unverified'
     });
 
     await newSeller.save();

@@ -89,7 +89,7 @@ const sellerSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['pending_approval', 'approved', 'active', 'pending', 'rejected', 'suspended', 'banned'],
-    default: 'pending_approval'
+    default: 'active'
   },
   rejectionReason: {
     type: String,
