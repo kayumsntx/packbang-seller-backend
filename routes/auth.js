@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const Seller = require('../models/Seller');
 const verifySellerToken = require('../middleware/auth');
+const { sendSms } = require('../services/smsService');
 
 // In-memory OTP storage for rapid verification testing (phone -> { code, expiresAt })
 const otpStore = new Map();
@@ -210,12 +211,16 @@ router.post('/send-otp', async (req, res) => {
     otpStore.set(cleanPhone, { code, expiresAt });
     console.log(`[Packbang OTP] Generated code for ${cleanPhone}: ${code}`);
 
-    // In production, integrate SMS gateway here (e.g., Greenweb, SSL Wireless, Steadfast SMS)
+    // Send SMS via Pluggable SMS Service
+    const smsMessage = `[Packbang] Your seller login verification code is ${code}. Valid for 5 minutes.`;
+    const smsResult = await sendSms(cleanPhone, smsMessage);
+
     return res.json({
       success: true,
       message: `OTP code sent successfully to +880${cleanPhone}.`,
+      smsMode: smsResult.mode,
       // Provide preview in development mode for easy testing
-      debugCode: process.env.NODE_ENV !== 'production' ? code : undefined
+      debugCode: !process.env.SMS_API_KEY ? code : undefined
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to send OTP.' });
@@ -273,6 +278,145 @@ router.post('/verify-otp', async (req, res) => {
   } catch (err) {
     console.error('OTP verify error:', err);
     return res.status(500).json({ success: false, message: 'Server error during OTP verification.' });
+  }
+});
+
+// ============================================================================
+// 5. POST /api/auth/forgot-password/send-otp - Request Password Reset OTP
+// ============================================================================
+router.post('/forgot-password/send-otp', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'Registered mobile number is required.' });
+    }
+
+    const cleanPhone = formatPhone(phone);
+    if (cleanPhone.length < 11) {
+      return res.status(400).json({ success: false, message: 'Please provide a valid 11-digit Bangladeshi mobile number.' });
+    }
+
+    // Verify seller exists
+    const seller = await Seller.findOne({
+      $or: [
+        { phone: cleanPhone },
+        { phone: phone }
+      ]
+    });
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: 'No seller account registered with this phone number. Please check the number or register.'
+      });
+    }
+
+    // Generate 6-digit OTP
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save directly to MongoDB (persists across Render restarts & sleep cycles)
+    seller.resetPasswordOtp = code;
+    seller.resetPasswordExpires = expiresAt;
+    await seller.save();
+
+    // Send SMS via Pluggable SMS Service
+    const smsMessage = `[Packbang] Your seller password reset code is ${code}. Valid for 10 minutes. Do not share this code.`;
+    const smsResult = await sendSms(cleanPhone, smsMessage);
+
+    return res.json({
+      success: true,
+      message: `Password reset OTP sent to +880${cleanPhone}.`,
+      smsMode: smsResult.mode,
+      debugCode: !process.env.SMS_API_KEY ? code : undefined
+    });
+
+  } catch (err) {
+    console.error('Forgot password OTP error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to send reset code. Please try again later.' });
+  }
+});
+
+// ============================================================================
+// 6. POST /api/auth/forgot-password/reset - Verify OTP & Set New Password
+// ============================================================================
+router.post('/forgot-password/reset', async (req, res) => {
+  try {
+    const { phone, otp, newPassword } = req.body;
+
+    if (!phone || !otp || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number, OTP code, and new password are required.'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long.'
+      });
+    }
+
+    const cleanPhone = formatPhone(phone);
+    const seller = await Seller.findOne({
+      $or: [
+        { phone: cleanPhone },
+        { phone: phone }
+      ]
+    });
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: 'Seller account not found.'
+      });
+    }
+
+    // Verify OTP matching
+    if (!seller.resetPasswordOtp || seller.resetPasswordOtp !== otp.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP code. Please check the 6-digit code and try again.'
+      });
+    }
+
+    // Verify OTP expiration
+    if (!seller.resetPasswordExpires || new Date() > seller.resetPasswordExpires) {
+      seller.resetPasswordOtp = null;
+      seller.resetPasswordExpires = null;
+      await seller.save();
+      return res.status(400).json({
+        success: false,
+        message: 'The reset OTP code has expired. Please request a new code.'
+      });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    seller.password = hashedPassword;
+    seller.resetPasswordOtp = null;
+    seller.resetPasswordExpires = null;
+    await seller.save();
+
+    // Auto-login: generate new JWT token
+    const token = generateToken(seller);
+
+    return res.json({
+      success: true,
+      message: 'Password has been reset successfully! Logging you in...',
+      token,
+      seller: sanitizeSeller(seller)
+    });
+
+  } catch (err) {
+    console.error('Password reset error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while resetting password. Please try again.'
+    });
   }
 });
 

@@ -127,6 +127,15 @@ const sellerSchema = new mongoose.Schema({
     type: Number,
     default: 0 // 0% commission for first 30 days
   },
+  // Password Reset via OTP (MongoDB persisted for Render reliability)
+  resetPasswordOtp: {
+    type: String,
+    default: null
+  },
+  resetPasswordExpires: {
+    type: Date,
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now
